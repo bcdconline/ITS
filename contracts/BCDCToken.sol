@@ -3,7 +3,15 @@ pragma solidity ^0.4.11;
 import './ERC20.sol';
 import './SafeMath.sol';
 import './MultiSigWallet.sol';
+import './BCDCVault.sol';
 
+contract UpgradeAgent is SafeMath {
+  address public owner;
+  bool public isUpgradeAgent;
+  function upgradeFrom(address _from, uint256 _value) public;
+  function finalizeUpgrade() public;
+  function setOriginalSupply() public;
+}
 // BCDC Token Contract with Token Sale Functionality as well
 contract BCDCToken is SafeMath, ERC20 {
 
@@ -20,27 +28,51 @@ contract BCDCToken is SafeMath, ERC20 {
 
     /// Mapping of token balance and allowed address for each address with transfer limit
     mapping (address => uint256) balances;
+    /// This is only for refund purpose, as we have price range during different weeks of Crowdfunding,
+    //  need to maintain total investment done so refund would be exactly same.
+    mapping (address => uint256) investment;
     mapping (address => mapping (address => uint256)) allowed;
 
     // Crowdsale information
     bool public finalizedCrowdfunding = false;
+    bool public preallocated = false;
     uint256 public fundingStartBlock; // crowdsale start block
     uint256 public fundingEndBlock; // crowdsale end block
-    uint256 public tokenSaleMax; // Max token allowed to sale e.g.250 millions + 125 millions for early investors
-    uint256 public tokenSaleMin; // Min tokens needs to be sold out for success
+    /// Upgraded Token Related
+    address public upgradeMaster;
+    UpgradeAgent public upgradeAgent;
+    uint256 public totalUpgraded;
+    /// Maximum Token Sale (Crowdsale + Early Sale + Supporters)
+    /// Approximate 250 millions ITS + 125 millions for early investors + 75 Millions to Supports
+    uint256 public tokenSaleMax;
+    /// Min tokens needs to be sold out for success
+    /// Approximate 1/4 of 250 millions
+    uint256 public tokenSaleMin;
     //1 Billion BCDC Tokens
     uint256 public constant maxTokenSupply = 1000000000;
+    /// Team token percentages to store in time vault
+    uint256 public constant vaultPercentOfTotal = 5;
+    /// Project Reserved Fund Token %
+    uint256 public constant reservedPercentTotal = 25;
 
     /// Multisig Wallet Address
     address public bcdcMultisig;
+    /// Project Reserve Fund address
+    address public bcdcReserveFund;
     /// BCDC's time-locked vault
-    /// BCDCVault public timeVault;
+    BCDCVault public timeVault;
+
+    /// Events
+    event Upgrade(address indexed _from, address indexed _to, uint256 _value);
+    event Refund(address indexed _from, uint256 _value);
+    event UpgradeFinalized(address sender, address upgradeAgent);
+    event UpgradeAgentSet(address agent);
 
     /// BCDC:ETH exchange rate
     uint256 tokensPerEther;
 
     function BCDCToken(address _bcdcMultiSig,
-                      //address _upgradeMaster,
+                      address _upgradeMaster,
                       uint256 _fundingStartBlock,
                       uint256 _fundingEndBlock,
                       uint256 _tokenSaleMax,
@@ -48,20 +80,20 @@ contract BCDCToken is SafeMath, ERC20 {
                       uint256 _tokensPerEther) {
 
         if (_bcdcMultiSig == 0) throw;
-        //if (_upgradeMaster == 0) throw;
+        if (_upgradeMaster == 0) throw;
         if (_fundingStartBlock <= block.number) throw;
         if (_fundingEndBlock   <= _fundingStartBlock) throw;
         if (_tokenSaleMax <= _tokenSaleMin) throw;
         if (_tokensPerEther == 0) throw;
         isBCDCToken = true;
-        //upgradeMaster = _upgradeMaster;
+        upgradeMaster = _upgradeMaster;
         fundingStartBlock = _fundingStartBlock;
         fundingEndBlock = _fundingEndBlock;
         tokenSaleMax = _tokenSaleMax;
         tokenSaleMin = _tokenSaleMin;
         tokensPerEther = _tokensPerEther;
-        //timeVault = new BCDCVault(_bcdcMultiSig);
-        //if (!timeVault.isBCDCVault()) throw;
+        timeVault = new BCDCVault(_bcdcMultiSig);
+        if (!timeVault.isBCDCVault()) throw;
         bcdcMultisig = _bcdcMultiSig;
         if (!MultiSigWallet(bcdcMultisig).isMultiSigWallet()) throw;
     }
@@ -70,6 +102,14 @@ contract BCDCToken is SafeMath, ERC20 {
     /// @return balance tokens of investor address
     function balanceOf(address who) constant returns (uint) {
         return balances[who];
+    }
+
+    /// @param to The address of the investor to check investment amount
+    /// @return total investment done by ethereum address
+    /// This method is only usable up to Crowdfunding ends (Success or Fail)
+    /// So if tokens are transfered post crowdsale investment will not change.
+    function checkInvestment(address who) constant returns (uint) {
+        return investment[who];
     }
 
     /// @param owner The address of the account owning tokens
@@ -132,6 +172,68 @@ contract BCDCToken is SafeMath, ERC20 {
         return true;
     }
 
+    // Token upgrade functionality
+
+    /// @notice Upgrade tokens to the new token contract.
+    /// @dev Required state: Success
+    /// @param value The number of tokens to upgrade
+    function upgrade(uint256 value) external {
+        if (getState() != State.Success) throw; // Abort if not in Success state.
+        if (upgradeAgent.owner() == 0x0) throw; // need a real upgradeAgent address
+        if (finalizedUpgrade) throw; // cannot upgrade if finalized
+
+        // Validate input value.
+        if (value == 0) throw;
+        if (value > balances[msg.sender]) throw;
+
+        // update the balances here first before calling out (reentrancy)
+        balances[msg.sender] = safeSub(balances[msg.sender], value);
+        totalSupply = safeSub(totalSupply, value);
+        totalUpgraded = safeAdd(totalUpgraded, value);
+        upgradeAgent.upgradeFrom(msg.sender, value);
+        Upgrade(msg.sender, upgradeAgent, value);
+    }
+
+    /// @notice Set address of upgrade target contract and enable upgrade
+    /// process.
+    /// @dev Required state: Success
+    /// @param agent The address of the UpgradeAgent contract
+    function setUpgradeAgent(address agent) external {
+        if (getState() != State.Success) throw; // Abort if not in Success state.
+        if (agent == 0x0) throw; // don't set agent to nothing
+        if (msg.sender != upgradeMaster) throw; // Only a master can designate the next agent
+        upgradeAgent = UpgradeAgent(agent);
+        if (!upgradeAgent.isUpgradeAgent()) throw;
+        // this needs to be called in success condition to guarantee the invariant is true
+        upgradeAgent.setOriginalSupply();
+        UpgradeAgentSet(upgradeAgent);
+    }
+
+    /// @notice Set address of upgrade target contract and enable upgrade
+    /// process.
+    /// @dev Required state: Success
+    /// @param master The address that will manage upgrades, not the upgradeAgent contract address
+    function setUpgradeMaster(address master) external {
+        if (getState() != State.Success) throw; // Abort if not in Success state.
+        if (master == 0x0) throw;
+        if (msg.sender != upgradeMaster) throw; // Only a master can designate the next master
+        upgradeMaster = master;
+    }
+
+    /// @notice finalize the upgrade
+    /// @dev Required state: Success
+    function finalizeUpgrade() external {
+        if (getState() != State.Success) throw; // Abort if not in Success state.
+        if (upgradeAgent.owner() == 0x0) throw; // we need a valid upgrade agent
+        if (msg.sender != upgradeMaster) throw; // only upgradeMaster can finalize
+        if (finalizedUpgrade) throw; // can't finalize twice
+
+        finalizedUpgrade = true; // prevent future upgrades
+
+        upgradeAgent.finalizeUpgrade(); // call finalize upgrade on new contract
+        UpgradeFinalized(msg.sender, upgradeAgent);
+    }
+
     // Set of Crowdfunding Functions :
     // Don't just send ether to the contract expecting to get tokens
     function() payable { throw; }
@@ -153,18 +255,42 @@ contract BCDCToken is SafeMath, ERC20 {
 
         // Call to Internal function to assign tokens
         assignTokens(msg.sender, createdTokens);
+
+        // Track the investment for each address till crowdsale ends
+        investment[investor] = safeAdd(investment[investor], msg.value);
+    }
+
+    /// To allocate tokens to Project Fund - eg. RecycleToCoin before Token Sale
+    /// Tokens allocated to these will not be count in totalSupply till the Token Sale Success and Finalized in finalizeCrowdfunding()
+    function preAllocation() onlyOwner external {
+        // Allow only in Pre Funding Mode
+        if (getState() != State.PreFunding) throw;
+        // To prevent multiple call by mistake
+        if (preallocated) throw;
+        preallocated = true;
+        /// 25% of overall Token Supply to project reseve fund
+        uint256 projectTokens = safeDiv(safeMul(maxTokenSupply, reservedPercentTotal), 100);
+        /// At this time we will not add to totalSupply because these are not part of Sale
+        /// It will be added in totalSupply once the Token Sale is Finalized
+        balances[bcdcReserveFund] = projectTokens;
+        /// Log the event
+        Transfer(0, bcdcReserveFund, projectTokens);
     }
 
     // BCDC accepts Early Investment and Pre ITS through manual process in Fiat Currency
     // BCDC Team will assign the tokens to investors manually through this function
-    function earlyInvestor(address earlyInvestor, uint256 assignTokens) onlyOwner external {
+    function earlyInvestor(address earlyInvestor, uint256 assignTokens, uint256 etherValue) onlyOwner external {
         // Allow only in Pre Funding Mode
         if (getState() != State.PreFunding) throw;
 
         // By mistake tokens mentioned as 0, save the cost of assigning tokens.
         if (assignTokens == 0 ) throw;
 
+        // Call to Internal function to assign tokens
         assignTokens(earlyInvestor, assignTokens);
+
+        // Track the investment for each address
+        investment[earlyInvestor] = safeAdd(investment[earlyInvestor], etherValue);
     }
 
     // Function will transfer the tokens to investor's address
@@ -190,8 +316,38 @@ contract BCDCToken is SafeMath, ERC20 {
         // prevent more creation of tokens
         finalizedCrowdfunding = true;
 
-        //TODO - Do complex code here
+        /// Check if Unsold tokens out 450 millions
+        /// 250 Millions Sale + 125 Millions for Early Investors + 75 Millions for Supporters
+        uint256 unsoldTokens = safeSub(tokenSaleMax, totalSupply);
 
+        // Founders and Tech Team Tokens Goes to Vault, Locked for 1 month (Tech) and 1 year(Team)
+        uint256 vaultTokens = safeDiv(safeMul(maxTokenSupply, vaultPercentOfTotal), hundredPercent);
+        totalSupply = safeAdd(totalSupply, vaultTokens);
+        balances[timeVault] = safeAdd(balances[timeVault], vaultTokens);
+        Transfer(0, timeVault, vaultTokens);
+
+        /// Only transact if there are any unsold tokens
+        if(unsoldTokens > 0) {
+            totalSupply = safeAdd(totalSupply, unsoldTokens);
+            /// 50% unsold tokens assign to Reward tokens held by Multisig Wallet
+            uint256 rewardTokens = safeDiv(safeMul(unsoldTokens, 50), 100);
+            balances[bcdcMultisig] = safeAdd(balances[bcdcMultisig], rewardTokens);/// Assign Reward Tokens to Multisig wallet
+            Transfer(0, bcdcMultisig, rewardTokens);
+            /// Remaining unsold tokens assign to Project Reserve Fund
+            uint256 projectTokens = safeSub(unsoldTokens, rewardTokens);
+            balances[bcdcReserveFund] = safeAdd(balances[bcdcReserveFund], projectTokens);/// Assign Reward Tokens to Multisig wallet
+            Transfer(0, bcdcReserveFund, projectTokens);
+        }
+
+        /// Add pre allocated tokens to project reserve fund to totalSupply
+        uint256 preallocatedTokens = safeDiv(safeMul(maxTokenSupply, reservedPercentTotal), 100);
+        // project tokens already counted, so only add preallcated tokens
+        totalSupply = safeAdd(totalSupply, preallocatedTokens);
+        // Allocate total project tokens - To reduce the transaction both counted together
+        balances[bcdcReserveFund] = safeAdd(balances[bcdcReserveFund], preallocatedTokens);
+        Transfer(0, bcdcReserveFund, preallocatedTokens);
+        /// Total Supply Should not be greater than 1 Billion
+        if (totalSupply > maxTokenSupply) throw;
         // Transfer ETH to the BCDC Multisig address.
         if (!bcdcMultisig.send(this.balance)) throw;
     }
@@ -207,7 +363,8 @@ contract BCDCToken is SafeMath, ERC20 {
         balances[msg.sender] = 0;
         totalSupply = safeSub(totalSupply, bcdcValue);
 
-        uint256 ethValue = safeDiv(bcdcValue, tokensPerEther);
+        uint256 ethValue = investment[msg.sender];
+        investment[msg.sender] = 0;
         Refund(msg.sender, ethValue);
         if (!msg.sender.send(ethValue)) throw;
     }
