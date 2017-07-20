@@ -3,6 +3,7 @@ pragma solidity ^0.4.11;
 import './ERC20.sol';
 import './SafeMath.sol';
 import './MultiSigWallet.sol';
+import './Haltable.sol';
 import './BCDCVault.sol';
 
 contract UpgradeAgent is SafeMath {
@@ -13,7 +14,7 @@ contract UpgradeAgent is SafeMath {
   function setOriginalSupply() public;
 }
 // BCDC Token Contract with Token Sale Functionality as well
-contract BCDCToken is SafeMath, ERC20 {
+contract BCDCToken is SafeMath, ERC20, Haltable {
 
     /// Is BCDC Token Initalized
     bool public isBCDCToken = false;
@@ -239,8 +240,8 @@ contract BCDCToken is SafeMath, ERC20 {
     function() payable { throw; }
 
     /// Sale of the tokens. Investors can call this method to invest into BCDC Tokens
-    /// Only when it's in funding mode
-    function sale() payable external {
+    /// Only when it's in funding mode. In case of emergecy it will be halted.
+    function sale() payable stopIfHalted external {
         // Allow only to invest in funding state
         if (getState() != State.Funding) throw;
 
@@ -262,7 +263,7 @@ contract BCDCToken is SafeMath, ERC20 {
 
     /// To allocate tokens to Project Fund - eg. RecycleToCoin before Token Sale
     /// Tokens allocated to these will not be count in totalSupply till the Token Sale Success and Finalized in finalizeCrowdfunding()
-    function preAllocation() onlyOwner external {
+    function preAllocation() onlyOwner stopIfHalted external {
         // Allow only in Pre Funding Mode
         if (getState() != State.PreFunding) throw;
         // To prevent multiple call by mistake
@@ -279,7 +280,7 @@ contract BCDCToken is SafeMath, ERC20 {
 
     // BCDC accepts Early Investment and Pre ITS through manual process in Fiat Currency
     // BCDC Team will assign the tokens to investors manually through this function
-    function earlyInvestor(address earlyInvestor, uint256 assignTokens, uint256 etherValue) onlyOwner external {
+    function earlyInvestor(address earlyInvestor, uint256 assignTokens, uint256 etherValue) onlyOwner stopIfHalted external {
         // Allow only in Pre Funding Mode
         if (getState() != State.PreFunding) throw;
 
@@ -308,7 +309,7 @@ contract BCDCToken is SafeMath, ERC20 {
 
     /// Finalize crowdfunding
     /// Finally - Transfer the Ether to Multisig Wallet
-    function finalizeCrowdfunding() external {
+    function finalizeCrowdfunding() stopInEmergency external {
         // Abort if not in Funding Success state.
         if (getState() != State.Success) throw; // don't finalize unless we won
         if (finalizedCrowdfunding) throw; // can't finalize twice (so sneaky!)
