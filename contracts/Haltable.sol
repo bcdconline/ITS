@@ -32,5 +32,5 @@ contract Haltable is Ownable {
     function unhalt() external onlyOwner{
       halted = false;
     }
-    
+
 }

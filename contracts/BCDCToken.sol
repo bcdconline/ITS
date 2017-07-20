@@ -16,20 +16,20 @@ contract UpgradeAgent is SafeMath {
 // BCDC Token Contract with Token Sale Functionality as well
 contract BCDCToken is SafeMath, ERC20, Haltable {
 
-    /// Is BCDC Token Initalized
+    // Is BCDC Token Initalized
     bool public isBCDCToken = false;
 
-    /// Define the current state of crowdsale
+    // Define the current state of crowdsale
     enum State{PreFunding, Funding, Success, Failure}
 
-    /// Token related information
+    // Token related information
     string public constant name = "BCDC Token";
     string public constant symbol = "BCDC";
     uint256 public constant decimals = 18;  // decimal places
 
-    /// Mapping of token balance and allowed address for each address with transfer limit
+    // Mapping of token balance and allowed address for each address with transfer limit
     mapping (address => uint256) balances;
-    /// This is only for refund purpose, as we have price range during different weeks of Crowdfunding,
+    // This is only for refund purpose, as we have price range during different weeks of Crowdfunding,
     //  need to maintain total investment done so refund would be exactly same.
     mapping (address => uint256) investment;
     mapping (address => mapping (address => uint256)) allowed;
@@ -39,37 +39,38 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
     bool public preallocated = false;
     uint256 public fundingStartBlock; // crowdsale start block
     uint256 public fundingEndBlock; // crowdsale end block
-    /// Upgraded Token Related
+    // Upgraded Token Related
+    bool public finalizedUpgrade = false;
     address public upgradeMaster;
     UpgradeAgent public upgradeAgent;
     uint256 public totalUpgraded;
-    /// Maximum Token Sale (Crowdsale + Early Sale + Supporters)
-    /// Approximate 250 millions ITS + 125 millions for early investors + 75 Millions to Supports
+    // Maximum Token Sale (Crowdsale + Early Sale + Supporters)
+    // Approximate 250 millions ITS + 125 millions for early investors + 75 Millions to Supports
     uint256 public tokenSaleMax;
-    /// Min tokens needs to be sold out for success
-    /// Approximate 1/4 of 250 millions
+    // Min tokens needs to be sold out for success
+    // Approximate 1/4 of 250 millions
     uint256 public tokenSaleMin;
     //1 Billion BCDC Tokens
     uint256 public constant maxTokenSupply = 1000000000;
-    /// Team token percentages to store in time vault
+    // Team token percentages to store in time vault
     uint256 public constant vaultPercentOfTotal = 5;
-    /// Project Reserved Fund Token %
+    // Project Reserved Fund Token %
     uint256 public constant reservedPercentTotal = 25;
 
-    /// Multisig Wallet Address
+    // Multisig Wallet Address
     address public bcdcMultisig;
-    /// Project Reserve Fund address
+    // Project Reserve Fund address
     address public bcdcReserveFund;
-    /// BCDC's time-locked vault
+    // BCDC's time-locked vault
     BCDCVault public timeVault;
 
-    /// Events
+    // Events
     event Upgrade(address indexed _from, address indexed _to, uint256 _value);
     event Refund(address indexed _from, uint256 _value);
     event UpgradeFinalized(address sender, address upgradeAgent);
     event UpgradeAgentSet(address agent);
 
-    /// BCDC:ETH exchange rate
+    // BCDC:ETH exchange rate
     uint256 tokensPerEther;
 
     function BCDCToken(address _bcdcMultiSig,
@@ -99,55 +100,55 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         if (!MultiSigWallet(bcdcMultisig).isMultiSigWallet()) throw;
     }
 
-    /// @param to The address of the investor to check balance
-    /// @return balance tokens of investor address
+    // @param to The address of the investor to check balance
+    // @return balance tokens of investor address
     function balanceOf(address who) constant returns (uint) {
         return balances[who];
     }
 
-    /// @param to The address of the investor to check investment amount
-    /// @return total investment done by ethereum address
-    /// This method is only usable up to Crowdfunding ends (Success or Fail)
-    /// So if tokens are transfered post crowdsale investment will not change.
+    // @param to The address of the investor to check investment amount
+    // @return total investment done by ethereum address
+    // This method is only usable up to Crowdfunding ends (Success or Fail)
+    // So if tokens are transfered post crowdsale investment will not change.
     function checkInvestment(address who) constant returns (uint) {
         return investment[who];
     }
 
-    /// @param owner The address of the account owning tokens
-    /// @param spender The address of the account able to transfer the tokens
-    /// @return Amount of remaining tokens allowed to spent
+    // @param owner The address of the account owning tokens
+    // @param spender The address of the account able to transfer the tokens
+    // @return Amount of remaining tokens allowed to spent
     function allowance(address owner, address spender) constant returns (uint) {
         return allowed[owner][spender];
     }
 
-    /// @notice Transfer `value` BCDC tokens from sender's account
-    /// `msg.sender` to provided account address `to`.
-    /// @notice This function is disabled during the funding. TODO
-    /// @dev Required state: Success
-    /// @param to The address of the recipient
-    /// @param value The number of BCDC tokens to transfer
-    /// @return Whether the transfer was successful or not
+    // ** Transfer `value` BCDC tokens from sender's account
+    // `msg.sender` to provided account address `to`.
+    // ** This function is disabled during the funding. TODO
+    // @dev Required state: Success
+    // @param to The address of the recipient
+    // @param value The number of BCDC tokens to transfer
+    // @return Whether the transfer was successful or not
     function transfer(address to, uint value) returns (bool ok) {
         if (getState() != State.Success) throw; // Abort if crowdfunding was not a success.
-        uint256 senderBalance = balanceOf[msg.sender];
+        uint256 senderBalance = balances[msg.sender];
         if ( senderBalance >= value && value > 0) {
             senderBalance = safeSub(senderBalance, value);
             balances[msg.sender] = senderBalance;
-            balanceOf[to] = safeAdd(balanceOf[to], value);
+            balances[to] = safeAdd(balances[to], value);
             Transfer(msg.sender, to, value);
             return true;
         }
         return false;
     }
 
-    /// @notice Transfer `value` BCDC tokens from sender 'from'
-    /// to provided account address `to`.
-    /// @notice This function is disabled during the funding.
-    /// @dev Required state: Success
-    /// @param from The address of the sender
-    /// @param to The address of the recipient
-    /// @param value The number of BCDC to transfer
-    /// @return Whether the transfer was successful or not
+    // ** Transfer `value` BCDC tokens from sender 'from'
+    // to provided account address `to`.
+    // ** This function is disabled during the funding.
+    // @dev Required state: Success
+    // @param from The address of the sender
+    // @param to The address of the recipient
+    // @param value The number of BCDC to transfer
+    // @return Whether the transfer was successful or not
     function transferFrom(address from, address to, uint value) returns (bool ok) {
         if (getState() != State.Success) throw; // Abort if crowdfunding was not a success.
         if (balances[from] >= value &&
@@ -162,10 +163,10 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         } else { return false; }
     }
 
-    /// @notice `msg.sender` approves `spender` to spend `value` tokens
-    /// @param spender The address of the account able to transfer the tokens
-    /// @param value The amount of wei to be approved for transfer
-    /// @return Whether the approval was successful or not
+    // ** `msg.sender` approves `spender` to spend `value` tokens
+    // @param spender The address of the account able to transfer the tokens
+    // @param value The amount of wei to be approved for transfer
+    // @return Whether the approval was successful or not
     function approve(address spender, uint value) returns (bool ok) {
         if (getState() != State.Success) throw; // Abort if not in Success state.
         allowed[msg.sender][spender] = value;
@@ -175,9 +176,9 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
 
     // Token upgrade functionality
 
-    /// @notice Upgrade tokens to the new token contract.
-    /// @dev Required state: Success
-    /// @param value The number of tokens to upgrade
+    // ** Upgrade tokens to the new token contract.
+    // @dev Required state: Success
+    // @param value The number of tokens to upgrade
     function upgrade(uint256 value) external {
         if (getState() != State.Success) throw; // Abort if not in Success state.
         if (upgradeAgent.owner() == 0x0) throw; // need a real upgradeAgent address
@@ -195,10 +196,10 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         Upgrade(msg.sender, upgradeAgent, value);
     }
 
-    /// @notice Set address of upgrade target contract and enable upgrade
-    /// process.
-    /// @dev Required state: Success
-    /// @param agent The address of the UpgradeAgent contract
+    // ** Set address of upgrade target contract and enable upgrade
+    // process.
+    // @dev Required state: Success
+    // @param agent The address of the UpgradeAgent contract
     function setUpgradeAgent(address agent) external {
         if (getState() != State.Success) throw; // Abort if not in Success state.
         if (agent == 0x0) throw; // don't set agent to nothing
@@ -210,10 +211,10 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         UpgradeAgentSet(upgradeAgent);
     }
 
-    /// @notice Set address of upgrade target contract and enable upgrade
-    /// process.
-    /// @dev Required state: Success
-    /// @param master The address that will manage upgrades, not the upgradeAgent contract address
+    // ** Set address of upgrade target contract and enable upgrade
+    // process.
+    // @dev Required state: Success
+    // @param master The address that will manage upgrades, not the upgradeAgent contract address
     function setUpgradeMaster(address master) external {
         if (getState() != State.Success) throw; // Abort if not in Success state.
         if (master == 0x0) throw;
@@ -221,8 +222,8 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         upgradeMaster = master;
     }
 
-    /// @notice finalize the upgrade
-    /// @dev Required state: Success
+    // ** finalize the upgrade
+    // @dev Required state: Success
     function finalizeUpgrade() external {
         if (getState() != State.Success) throw; // Abort if not in Success state.
         if (upgradeAgent.owner() == 0x0) throw; // we need a valid upgrade agent
@@ -239,8 +240,8 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
     // Don't just send ether to the contract expecting to get tokens
     function() payable { throw; }
 
-    /// Sale of the tokens. Investors can call this method to invest into BCDC Tokens
-    /// Only when it's in funding mode. In case of emergecy it will be halted.
+    // Sale of the tokens. Investors can call this method to invest into BCDC Tokens
+    // Only when it's in funding mode. In case of emergecy it will be halted.
     function sale() payable stopIfHalted external {
         // Allow only to invest in funding state
         if (getState() != State.Funding) throw;
@@ -258,37 +259,37 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         assignTokens(msg.sender, createdTokens);
 
         // Track the investment for each address till crowdsale ends
-        investment[investor] = safeAdd(investment[investor], msg.value);
+        investment[msg.sender] = safeAdd(investment[msg.sender], msg.value);
     }
 
-    /// To allocate tokens to Project Fund - eg. RecycleToCoin before Token Sale
-    /// Tokens allocated to these will not be count in totalSupply till the Token Sale Success and Finalized in finalizeCrowdfunding()
+    // To allocate tokens to Project Fund - eg. RecycleToCoin before Token Sale
+    // Tokens allocated to these will not be count in totalSupply till the Token Sale Success and Finalized in finalizeCrowdfunding()
     function preAllocation() onlyOwner stopIfHalted external {
         // Allow only in Pre Funding Mode
         if (getState() != State.PreFunding) throw;
         // To prevent multiple call by mistake
         if (preallocated) throw;
         preallocated = true;
-        /// 25% of overall Token Supply to project reseve fund
+        // 25% of overall Token Supply to project reseve fund
         uint256 projectTokens = safeDiv(safeMul(maxTokenSupply, reservedPercentTotal), 100);
-        /// At this time we will not add to totalSupply because these are not part of Sale
-        /// It will be added in totalSupply once the Token Sale is Finalized
+        // At this time we will not add to totalSupply because these are not part of Sale
+        // It will be added in totalSupply once the Token Sale is Finalized
         balances[bcdcReserveFund] = projectTokens;
-        /// Log the event
+        // Log the event
         Transfer(0, bcdcReserveFund, projectTokens);
     }
 
     // BCDC accepts Early Investment and Pre ITS through manual process in Fiat Currency
     // BCDC Team will assign the tokens to investors manually through this function
-    function earlyInvestor(address earlyInvestor, uint256 assignTokens, uint256 etherValue) onlyOwner stopIfHalted external {
+    function earlyInvestor(address earlyInvestor, uint256 assignedTokens, uint256 etherValue) onlyOwner stopIfHalted external {
         // Allow only in Pre Funding Mode
         if (getState() != State.PreFunding) throw;
 
         // By mistake tokens mentioned as 0, save the cost of assigning tokens.
-        if (assignTokens == 0 ) throw;
+        if (assignedTokens == 0 ) throw;
 
         // Call to Internal function to assign tokens
-        assignTokens(earlyInvestor, assignTokens);
+        assignTokens(earlyInvestor, assignedTokens);
 
         // Track the investment for each address
         investment[earlyInvestor] = safeAdd(investment[earlyInvestor], etherValue);
@@ -307,9 +308,9 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         Transfer(0, investor, tokens);
     }
 
-    /// Finalize crowdfunding
-    /// Finally - Transfer the Ether to Multisig Wallet
-    function finalizeCrowdfunding() stopInEmergency external {
+    // Finalize crowdfunding
+    // Finally - Transfer the Ether to Multisig Wallet
+    function finalizeCrowdfunding() stopIfHalted external {
         // Abort if not in Funding Success state.
         if (getState() != State.Success) throw; // don't finalize unless we won
         if (finalizedCrowdfunding) throw; // can't finalize twice (so sneaky!)
@@ -317,44 +318,44 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         // prevent more creation of tokens
         finalizedCrowdfunding = true;
 
-        /// Check if Unsold tokens out 450 millions
-        /// 250 Millions Sale + 125 Millions for Early Investors + 75 Millions for Supporters
+        // Check if Unsold tokens out 450 millions
+        // 250 Millions Sale + 125 Millions for Early Investors + 75 Millions for Supporters
         uint256 unsoldTokens = safeSub(tokenSaleMax, totalSupply);
 
         // Founders and Tech Team Tokens Goes to Vault, Locked for 1 month (Tech) and 1 year(Team)
-        uint256 vaultTokens = safeDiv(safeMul(maxTokenSupply, vaultPercentOfTotal), hundredPercent);
+        uint256 vaultTokens = safeDiv(safeMul(maxTokenSupply, vaultPercentOfTotal), 100);
         totalSupply = safeAdd(totalSupply, vaultTokens);
         balances[timeVault] = safeAdd(balances[timeVault], vaultTokens);
         Transfer(0, timeVault, vaultTokens);
 
-        /// Only transact if there are any unsold tokens
+        // Only transact if there are any unsold tokens
         if(unsoldTokens > 0) {
             totalSupply = safeAdd(totalSupply, unsoldTokens);
-            /// 50% unsold tokens assign to Reward tokens held by Multisig Wallet
+            // 50% unsold tokens assign to Reward tokens held by Multisig Wallet
             uint256 rewardTokens = safeDiv(safeMul(unsoldTokens, 50), 100);
-            balances[bcdcMultisig] = safeAdd(balances[bcdcMultisig], rewardTokens);/// Assign Reward Tokens to Multisig wallet
+            balances[bcdcMultisig] = safeAdd(balances[bcdcMultisig], rewardTokens);// Assign Reward Tokens to Multisig wallet
             Transfer(0, bcdcMultisig, rewardTokens);
-            /// Remaining unsold tokens assign to Project Reserve Fund
+            // Remaining unsold tokens assign to Project Reserve Fund
             uint256 projectTokens = safeSub(unsoldTokens, rewardTokens);
-            balances[bcdcReserveFund] = safeAdd(balances[bcdcReserveFund], projectTokens);/// Assign Reward Tokens to Multisig wallet
+            balances[bcdcReserveFund] = safeAdd(balances[bcdcReserveFund], projectTokens);// Assign Reward Tokens to Multisig wallet
             Transfer(0, bcdcReserveFund, projectTokens);
         }
 
-        /// Add pre allocated tokens to project reserve fund to totalSupply
+        // Add pre allocated tokens to project reserve fund to totalSupply
         uint256 preallocatedTokens = safeDiv(safeMul(maxTokenSupply, reservedPercentTotal), 100);
         // project tokens already counted, so only add preallcated tokens
         totalSupply = safeAdd(totalSupply, preallocatedTokens);
         // Allocate total project tokens - To reduce the transaction both counted together
         balances[bcdcReserveFund] = safeAdd(balances[bcdcReserveFund], preallocatedTokens);
         Transfer(0, bcdcReserveFund, preallocatedTokens);
-        /// Total Supply Should not be greater than 1 Billion
+        // Total Supply Should not be greater than 1 Billion
         if (totalSupply > maxTokenSupply) throw;
         // Transfer ETH to the BCDC Multisig address.
         if (!bcdcMultisig.send(this.balance)) throw;
     }
 
-    /// Call this function to get the refund of investment done during Crowdsale
-    /// Refund can be done only when Min Goal has not reached and Crowdsale is over
+    // Call this function to get the refund of investment done during Crowdsale
+    // Refund can be done only when Min Goal has not reached and Crowdsale is over
     function refund() external {
         // Abort if not in Funding Failure state.
         if (getState() != State.Failure) throw;
@@ -370,17 +371,17 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         if (!msg.sender.send(ethValue)) throw;
     }
 
-    /// This is to change the price of BCDC Tokens per ether
-    /// Only owner can change
-    /// To motivate the investors with discounted rate pricing changes over weeks
+    // This is to change the price of BCDC Tokens per ether
+    // Only owner can change
+    // To motivate the investors with discounted rate pricing changes over weeks
     function changeExchangePrice(uint256 _changedPrice) onlyOwner external  {
         // Allow only to set the price while in funding state
         if (getState() != State.Funding) throw;
         tokensPerEther = _changedPrice;
     }
 
-    /// This will return the current state of Token Sale
-    /// Read only method so no transaction fees
+    // This will return the current state of Token Sale
+    // Read only method so no transaction fees
     function getState() public constant returns (State){
       if (block.number < fundingStartBlock) return State.PreFunding;
       else if (block.number <= fundingEndBlock && totalSupply < tokenSaleMax) return State.Funding;
