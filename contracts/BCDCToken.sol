@@ -39,6 +39,7 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
     bool public preallocated = false;
     uint256 public fundingStartBlock; // crowdsale start block
     uint256 public fundingEndBlock; // crowdsale end block
+    uint256 public priceChangeBlock;
     // Upgraded Token Related
     bool public finalizedUpgrade = false;
     address public upgradeMaster;
@@ -60,7 +61,7 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
     // Multisig Wallet Address
     address public bcdcMultisig;
     // Project Reserve Fund address
-    address public bcdcReserveFund;
+    address bcdcReserveFund;
     // BCDC's time-locked vault
     BCDCVault public timeVault;
 
@@ -77,6 +78,7 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
                       address _upgradeMaster,
                       uint256 _fundingStartBlock,
                       uint256 _fundingEndBlock,
+                      uint256 _priceChangeBlock,
                       uint256 _tokenSaleMax,
                       uint256 _tokenSaleMin,
                       uint256 _tokensPerEther) {
@@ -84,13 +86,16 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         if (_bcdcMultiSig == 0) throw;
         if (_upgradeMaster == 0) throw;
         if (_fundingStartBlock <= block.number) throw;
+        if (_priceChangeBlock  <= _fundingStartBlock) throw;
         if (_fundingEndBlock   <= _fundingStartBlock) throw;
+        if (_fundingEndBlock   <= _priceChangeBlock) throw;
         if (_tokenSaleMax <= _tokenSaleMin) throw;
         if (_tokensPerEther == 0) throw;
         isBCDCToken = true;
         upgradeMaster = _upgradeMaster;
         fundingStartBlock = _fundingStartBlock;
         fundingEndBlock = _fundingEndBlock;
+        priceChangeBlock = _priceChangeBlock;
         tokenSaleMax = _tokenSaleMax;
         tokenSaleMin = _tokenSaleMin;
         tokensPerEther = _tokensPerEther;
@@ -98,6 +103,15 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         if (!timeVault.isBCDCVault()) throw;
         bcdcMultisig = _bcdcMultiSig;
         if (!MultiSigWallet(bcdcMultisig).isMultiSigWallet()) throw;
+    }
+    // @param Address of Contract of Ether Address for Project Reserve Fund
+    // This has to be called before preAllocation
+    // Only to be called by Owner of this contract
+    function setBcdcReserveFund(address _bcdcReserveFund) onlyOwner{
+        if (getState() != State.PreFunding) throw;        
+        if (preallocated) throw; // Has to be done before preallocation
+        if (_bcdcReserveFund == 0x0) throw;
+        bcdcReserveFund = _bcdcReserveFund;
     }
 
     // @param to The address of the investor to check balance
@@ -250,7 +264,7 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         if (msg.value == 0) throw;
 
         // multiply by exchange rate to get newly created token amount
-        uint256 createdTokens = safeMul(msg.value, tokensPerEther);
+        uint256 createdTokens = safeMul(msg.value, getTokensPerEtherPrice());
 
         // Wait we crossed maximum token sale goal. It's successful token sale !!
         if (safeAdd(createdTokens, totalSupply) > tokenSaleMax) throw;
@@ -267,6 +281,8 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
     function preAllocation() onlyOwner stopIfHalted external {
         // Allow only in Pre Funding Mode
         if (getState() != State.PreFunding) throw;
+        // Check if BCDC Reserve Fund is set or not
+        if (bcdcReserveFund == 0x0) throw;
         // To prevent multiple call by mistake
         if (preallocated) throw;
         preallocated = true;
@@ -279,9 +295,9 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         Transfer(0, bcdcReserveFund, projectTokens);
     }
 
-    // BCDC accepts Early Investment and Pre ITS through manual process in Fiat Currency
+    // BCDC accepts Early Investment through manual process in Fiat Currency
     // BCDC Team will assign the tokens to investors manually through this function
-    function earlyInvestor(address earlyInvestor, uint256 assignedTokens, uint256 etherValue) onlyOwner stopIfHalted external {
+    function earlyInvestment(address earlyInvestor, uint256 assignedTokens, uint256 etherValue) onlyOwner stopIfHalted external {
         // Allow only in Pre Funding Mode
         if (getState() != State.PreFunding) throw;
 
@@ -371,13 +387,15 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         if (!msg.sender.send(ethValue)) throw;
     }
 
-    // This is to change the price of BCDC Tokens per ether
-    // Only owner can change
+    // This function will return constant price of Tokens Per Ether
+    // Initially it will be different then it will be reduced
     // To motivate the investors with discounted rate pricing changes over weeks
-    function changeExchangePrice(uint256 _changedPrice) onlyOwner external  {
+    function getTokensPerEtherPrice() public constant returns (uint256){
         // Allow only to set the price while in funding state
         if (getState() != State.Funding) throw;
-        tokensPerEther = _changedPrice;
+        // It will be 2 weeks from start of sale
+        if (block.number < priceChangeBlock) return tokensPerEther;
+        else return safeSub(tokensPerEther, 500);
     }
 
     // This will return the current state of Token Sale
