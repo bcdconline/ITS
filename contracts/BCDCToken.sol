@@ -3,15 +3,6 @@ pragma solidity ^0.4.11;
 import './ERC20.sol';
 import './SafeMath.sol';
 import './MultiSigWallet.sol';
-import './Haltable.sol';
-
-contract UpgradeAgent is SafeMath {
-  address public owner;
-  bool public isUpgradeAgent;
-  function upgradeFrom(address _from, uint256 _value) public;
-  function finalizeUpgrade() public;
-  function setOriginalSupply() public;
-}
 
 // @title BCDC Token vault, locked tokens for 1 month (Dev Team) and 1 year for Founders
 contract BCDCVault is SafeMath {
@@ -80,10 +71,12 @@ contract BCDCVault is SafeMath {
 }
 
 // BCDC Token Contract with Token Sale Functionality as well
-contract BCDCToken is SafeMath, ERC20, Haltable {
+contract BCDCToken is SafeMath, ERC20 {
 
     // Is BCDC Token Initalized
     bool public isBCDCToken = false;
+    // Address of Owner for this Contract
+    address public owner;
 
     // Define the current state of crowdsale
     enum State{PreFunding, Funding, Success, Failure}
@@ -106,11 +99,7 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
     uint256 public fundingStartBlock; // crowdsale start block
     uint256 public fundingEndBlock; // crowdsale end block
     uint256 public priceChangeBlock;
-    // Upgraded Token Related
-    bool public finalizedUpgrade = false;
-    address public upgradeMaster;
-    UpgradeAgent public upgradeAgent;
-    uint256 public totalUpgraded;
+
     // Maximum Token Sale (Crowdsale + Early Sale + Supporters)
     // Approximate 250 millions ITS + 125 millions for early investors + 75 Millions to Supports
     uint256 public tokenSaleMax;
@@ -132,25 +121,21 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
     BCDCVault public timeVault;
 
     // Events
-    event Upgrade(address indexed _from, address indexed _to, uint256 _value);
     event Refund(address indexed _from, uint256 _value);
-    event UpgradeFinalized(address sender, address upgradeAgent);
-    event UpgradeAgentSet(address agent);
-
     // BCDC:ETH exchange rate
     uint256 tokensPerEther;
 
+    // @dev To Halt in Emergency Condition
+    bool public halted;
+
     function BCDCToken(address _bcdcMultiSig,
-                      address _upgradeMaster,
                       uint256 _fundingStartBlock,
                       uint256 _fundingEndBlock,
                       uint256 _priceChangeBlock,
                       uint256 _tokenSaleMax,
                       uint256 _tokenSaleMin,
                       uint256 _tokensPerEther) {
-
         if (_bcdcMultiSig == 0) throw;
-        if (_upgradeMaster == 0) throw;
         if (_fundingStartBlock <= block.number) throw;
         if (_priceChangeBlock  <= _fundingStartBlock) throw;
         if (_fundingEndBlock   <= _fundingStartBlock) throw;
@@ -158,7 +143,6 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         if (_tokenSaleMax <= _tokenSaleMin) throw;
         if (_tokensPerEther == 0) throw;
         isBCDCToken = true;
-        upgradeMaster = _upgradeMaster;
         fundingStartBlock = _fundingStartBlock;
         fundingEndBlock = _fundingEndBlock;
         priceChangeBlock = _priceChangeBlock;
@@ -168,8 +152,26 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         timeVault = new BCDCVault(_bcdcMultiSig);
         if (!timeVault.isBCDCVault()) throw;
         bcdcMultisig = _bcdcMultiSig;
+        owner = msg.sender;
         if (!MultiSigWallet(bcdcMultisig).isMultiSigWallet()) throw;
     }
+    // Ownership related modifer and functions
+    // @dev Throws if called by any account other than the owner
+    modifier onlyOwner() {
+      if (msg.sender != owner) {
+        throw;
+      }
+      _;
+    }
+
+    // @dev Allows the current owner to transfer control of the contract to a newOwner.
+    // @param newOwner The address to transfer ownership to.
+    function transferOwnership(address newOwner) onlyOwner {
+      if (newOwner != address(0)) {
+        owner = newOwner;
+      }
+    }
+
     // @param Address of Contract of Ether Address for Project Reserve Fund
     // This has to be called before preAllocation
     // Only to be called by Owner of this contract
@@ -203,7 +205,6 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
 
     // ** Transfer `value` BCDC tokens from sender's account
     // `msg.sender` to provided account address `to`.
-    // ** This function is disabled during the funding. TODO
     // @dev Required state: Success
     // @param to The address of the recipient
     // @param value The number of BCDC tokens to transfer
@@ -223,7 +224,6 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
 
     // ** Transfer `value` BCDC tokens from sender 'from'
     // to provided account address `to`.
-    // ** This function is disabled during the funding.
     // @dev Required state: Success
     // @param from The address of the sender
     // @param to The address of the recipient
@@ -252,68 +252,6 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
         allowed[msg.sender][spender] = value;
         Approval(msg.sender, spender, value);
         return true;
-    }
-
-    // Token upgrade functionality
-
-    // ** Upgrade tokens to the new token contract.
-    // @dev Required state: Success
-    // @param value The number of tokens to upgrade
-    function upgrade(uint256 value) external {
-        if (getState() != State.Success) throw; // Abort if not in Success state.
-        if (upgradeAgent.owner() == 0x0) throw; // need a real upgradeAgent address
-        if (finalizedUpgrade) throw; // cannot upgrade if finalized
-
-        // Validate input value.
-        if (value == 0) throw;
-        if (value > balances[msg.sender]) throw;
-
-        // update the balances here first before calling out (reentrancy)
-        balances[msg.sender] = safeSub(balances[msg.sender], value);
-        totalSupply = safeSub(totalSupply, value);
-        totalUpgraded = safeAdd(totalUpgraded, value);
-        upgradeAgent.upgradeFrom(msg.sender, value);
-        Upgrade(msg.sender, upgradeAgent, value);
-    }
-
-    // ** Set address of upgrade target contract and enable upgrade
-    // process.
-    // @dev Required state: Success
-    // @param agent The address of the UpgradeAgent contract
-    function setUpgradeAgent(address agent) external {
-        if (getState() != State.Success) throw; // Abort if not in Success state.
-        if (agent == 0x0) throw; // don't set agent to nothing
-        if (msg.sender != upgradeMaster) throw; // Only a master can designate the next agent
-        upgradeAgent = UpgradeAgent(agent);
-        if (!upgradeAgent.isUpgradeAgent()) throw;
-        // this needs to be called in success condition to guarantee the invariant is true
-        upgradeAgent.setOriginalSupply();
-        UpgradeAgentSet(upgradeAgent);
-    }
-
-    // ** Set address of upgrade target contract and enable upgrade
-    // process.
-    // @dev Required state: Success
-    // @param master The address that will manage upgrades, not the upgradeAgent contract address
-    function setUpgradeMaster(address master) external {
-        if (getState() != State.Success) throw; // Abort if not in Success state.
-        if (master == 0x0) throw;
-        if (msg.sender != upgradeMaster) throw; // Only a master can designate the next master
-        upgradeMaster = master;
-    }
-
-    // ** finalize the upgrade
-    // @dev Required state: Success
-    function finalizeUpgrade() external {
-        if (getState() != State.Success) throw; // Abort if not in Success state.
-        if (upgradeAgent.owner() == 0x0) throw; // we need a valid upgrade agent
-        if (msg.sender != upgradeMaster) throw; // only upgradeMaster can finalize
-        if (finalizedUpgrade) throw; // can't finalize twice
-
-        finalizedUpgrade = true; // prevent future upgrades
-
-        upgradeAgent.finalizeUpgrade(); // call finalize upgrade on new contract
-        UpgradeFinalized(msg.sender, upgradeAgent);
     }
 
     // Set of Crowdfunding Functions :
@@ -471,5 +409,29 @@ contract BCDCToken is SafeMath, ERC20, Haltable {
       else if (block.number <= fundingEndBlock && totalSupply < tokenSaleMax) return State.Funding;
       else if (totalSupply >= tokenSaleMin) return State.Success;
       else return State.Failure;
+    }
+
+    // These modifier and functions related to halt the sale in case of emergency
+
+    // @dev Use this as function modifier that should not execute if contract state Halted
+    modifier stopIfHalted {
+      if(halted) throw;
+      _;
+    }
+
+    // @dev Use this as function modifier that should execute only if contract state Halted
+    modifier runIfHalted{
+      if(!halted) throw;
+      _;
+    }
+
+    // @dev called by only owner in case of any emergecy situation
+    function halt() external onlyOwner{
+      halted = true;
+    }
+
+    // @dev called by only owner to stop the emergency situation
+    function unhalt() external onlyOwner{
+      halted = false;
     }
 }
