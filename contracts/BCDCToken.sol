@@ -11,8 +11,12 @@ contract BCDCVault is SafeMath {
     bool public isBCDCVault = false;
 
     BCDCToken bcdcToken;
+
+    // address of our private MultiSigWallet contract
     address bcdcMultisig;
+    // number of block unlock for developers
     uint256 unlockedBlockForDev;
+    // number of block unlock for founders
     uint256 unlockedBlockForFounders;
     // It should be 1 * 30 days * 24 hours * 60 minutes * 60 seconds / 17
     // We can set small for testing purpose
@@ -20,22 +24,32 @@ contract BCDCVault is SafeMath {
     // It should be 12 months * 30 days * 24 hours * 60 minutes * 60 seconds / 17
     // We can set small for testing purpose
     uint256 public constant numBlocksLockedFounders = 144;
-    //
+
+    // flag to determine all the token for developers already unlocked or not
     bool unlockedAllTokensForDev = false;
+    // flag to determine all the token for founders already unlocked or not
     bool unlockedAllTokensForFounders = false;
 
-    // ** Constructor function sets the BCDC Multisig address and
+    // Constructor function sets the BCDC Multisig address and
     // total number of locked tokens to transfer
     function BCDCVault(address _bcdcMultisig) {
+        // If it's not bcdcMultisig address then throw
         if (_bcdcMultisig == 0x0) throw;
+        // Initalized bcdcToken
         bcdcToken = BCDCToken(msg.sender);
+        // Initalized bcdcMultisig address
         bcdcMultisig = _bcdcMultisig;
+        // Mark it as BCDCVault
         isBCDCVault = true;
+        // Initalized unlockedBlockForDev with block number
+        // according to current block
         unlockedBlockForDev = safeAdd(block.number, numBlocksLockedDev); // 30 days of blocks later
+        // Initalized unlockedBlockForFounders with block number
+        // according to current block
         unlockedBlockForFounders = safeAdd(block.number, numBlocksLockedFounders); // 365 days of blocks later
     }
 
-    // ** Transfer Development Team Tokens To MultiSigWallet - 30 Days Locked
+    // Transfer Development Team Tokens To MultiSigWallet - 30 Days Locked
     function unlockForDevelopment() external {
         // If it has not reached 30 days mark do not transfer
         if (block.number < unlockedBlockForDev) throw;
@@ -45,6 +59,7 @@ contract BCDCVault is SafeMath {
         unlockedAllTokensForDev = true;
         // Will fail if allocation (and therefore toTransfer) is 0.
         uint256 totalBalance = bcdcToken.balanceOf(this);
+        // transfer half of token to development team
         uint256 developmentTokens = safeDiv(safeMul(totalBalance, 50), 100);
         if (!bcdcToken.transfer(bcdcMultisig, developmentTokens)) throw;
     }
@@ -70,10 +85,10 @@ contract BCDCVault is SafeMath {
 
 }
 
-// BCDC Token Contract with Token Sale Functionality as well
+// @title BCDC Token Contract with Token Sale Functionality as well
 contract BCDCToken is SafeMath, ERC20 {
 
-    // Is BCDC Token Initalized
+    // flag to determine if address is for a real contract or not
     bool public isBCDCToken = false;
     // Address of Owner for this Contract
     address public owner;
@@ -95,9 +110,12 @@ contract BCDCToken is SafeMath, ERC20 {
 
     // Crowdsale information
     bool public finalizedCrowdfunding = false;
+    // flag to determine is perallocation done or not
     bool public preallocated = false;
     uint256 public fundingStartBlock; // crowdsale start block
     uint256 public fundingEndBlock; // crowdsale end block
+    // change price of token when current block reached
+    // to priceChangeBlock block number
     uint256 public priceChangeBlock;
 
     // Maximum Token Sale (Crowdsale + Early Sale + Supporters)
@@ -120,7 +138,7 @@ contract BCDCToken is SafeMath, ERC20 {
     // BCDC's time-locked vault
     BCDCVault public timeVault;
 
-    // Events
+    // Events for refund process
     event Refund(address indexed _from, uint256 _value);
     // BCDC:ETH exchange rate
     uint256 tokensPerEther;
@@ -128,6 +146,15 @@ contract BCDCToken is SafeMath, ERC20 {
     // @dev To Halt in Emergency Condition
     bool public halted;
 
+
+    // Constructor function sets following
+    // @param bcdcMultisig address of bcdcMultisigWallet
+    // @param fundingStartBlock block number at which funding will start
+    // @param fundingEndBlock block number at which funding will end
+    // @param priceChangeBlock block number at which token price will change
+    // @param tokenSaleMax maximum number of token to sale
+    // @param tokenSaleMin minimum number of token to sale
+    // @param tokensPerEther number of token to sale per ether
     function BCDCToken(address _bcdcMultiSig,
                       uint256 _fundingStartBlock,
                       uint256 _fundingEndBlock,
@@ -135,24 +162,38 @@ contract BCDCToken is SafeMath, ERC20 {
                       uint256 _tokenSaleMax,
                       uint256 _tokenSaleMin,
                       uint256 _tokensPerEther) {
+        // Is not bcdcMultisig address correct then throw
         if (_bcdcMultiSig == 0) throw;
+        // Is funding already started then throw
         if (_fundingStartBlock <= block.number) throw;
+        // If priceChangeBlock or fundingStartBlock value is not correct then throw
         if (_priceChangeBlock  <= _fundingStartBlock) throw;
+        // If fundingEndBlock or fundingStartBlock value is not correct then throw
         if (_fundingEndBlock   <= _fundingStartBlock) throw;
+        // If fundingEndBlock or priceChangeBlock value is not correct then throw
         if (_fundingEndBlock   <= _priceChangeBlock) throw;
+        // If tokenSaleMax or tokenSaleMin value is not correct then throw
         if (_tokenSaleMax <= _tokenSaleMin) throw;
+        // If tokensPerEther value is 0 then throw
         if (_tokensPerEther == 0) throw;
+        // Mark it is BCDCToken
         isBCDCToken = true;
+        // Initalized all param
         fundingStartBlock = _fundingStartBlock;
         fundingEndBlock = _fundingEndBlock;
         priceChangeBlock = _priceChangeBlock;
         tokenSaleMax = _tokenSaleMax;
         tokenSaleMin = _tokenSaleMin;
         tokensPerEther = _tokensPerEther;
+        // Initalized timeVault as BCDCVault
         timeVault = new BCDCVault(_bcdcMultiSig);
+        // If timeVault is not BCDCVault then throw
         if (!timeVault.isBCDCVault()) throw;
+        // Initalized bcdcMultisig address
         bcdcMultisig = _bcdcMultiSig;
+        // Initalized owner
         owner = msg.sender;
+        // MultiSigWallet is not bcdcMultisig then throw
         if (!MultiSigWallet(bcdcMultisig).isMultiSigWallet()) throw;
     }
     // Ownership related modifer and functions
@@ -172,7 +213,7 @@ contract BCDCToken is SafeMath, ERC20 {
       }
     }
 
-    // @param Address of Contract of Ether Address for Project Reserve Fund
+    // @param _bcdcReserveFund Ether Address for Project Reserve Fund
     // This has to be called before preAllocation
     // Only to be called by Owner of this contract
     function setBcdcReserveFund(address _bcdcReserveFund) onlyOwner{
@@ -182,13 +223,13 @@ contract BCDCToken is SafeMath, ERC20 {
         bcdcReserveFund = _bcdcReserveFund;
     }
 
-    // @param to The address of the investor to check balance
+    // @param who The address of the investor to check balance
     // @return balance tokens of investor address
     function balanceOf(address who) constant returns (uint) {
         return balances[who];
     }
 
-    // @param to The address of the investor to check investment amount
+    // @param who The address of the investor to check investment amount
     // @return total investment done by ethereum address
     // This method is only usable up to Crowdfunding ends (Success or Fail)
     // So if tokens are transfered post crowdsale investment will not change.
