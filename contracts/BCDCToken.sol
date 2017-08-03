@@ -64,7 +64,7 @@ contract BCDCVault is SafeMath {
         if (!bcdcToken.transfer(bcdcMultisig, developmentTokens)) throw;
     }
 
-    // ** Transfer Founders Team Tokens To MultiSigWallet - 365 Days Locked
+    //  Transfer Founders Team Tokens To MultiSigWallet - 365 Days Locked
     function unlockForFounders() external {
         // If it has not reached 365 days mark do not transfer
         if (block.number < unlockedBlockForFounders) throw;
@@ -244,7 +244,7 @@ contract BCDCToken is SafeMath, ERC20 {
         return allowed[owner][spender];
     }
 
-    // ** Transfer `value` BCDC tokens from sender's account
+    //  Transfer `value` BCDC tokens from sender's account
     // `msg.sender` to provided account address `to`.
     // @dev Required state: Success
     // @param to The address of the recipient
@@ -263,7 +263,7 @@ contract BCDCToken is SafeMath, ERC20 {
         return false;
     }
 
-    // ** Transfer `value` BCDC tokens from sender 'from'
+    //  Transfer `value` BCDC tokens from sender 'from'
     // to provided account address `to`.
     // @dev Required state: Success
     // @param from The address of the sender
@@ -284,7 +284,7 @@ contract BCDCToken is SafeMath, ERC20 {
         } else { return false; }
     }
 
-    // ** `msg.sender` approves `spender` to spend `value` tokens
+    //  `msg.sender` approves `spender` to spend `value` tokens
     // @param spender The address of the account able to transfer the tokens
     // @param value The amount of wei to be approved for transfer
     // @return Whether the approval was successful or not
