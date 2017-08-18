@@ -301,7 +301,7 @@ contract BCDCToken is SafeMath, ERC20 {
 
     // Sale of the tokens. Investors can call this method to invest into BCDC Tokens
     // Only when it's in funding mode. In case of emergecy it will be halted.
-    function sale() payable stopIfHalted external {
+    function buy() payable stopIfHalted external {
         // Allow only to invest in funding state
         if (getState() != State.Funding) throw;
 
@@ -474,5 +474,33 @@ contract BCDCToken is SafeMath, ERC20 {
     // @dev called by only owner to stop the emergency situation
     function unhalt() external onlyOwner{
       halted = false;
+    }
+
+    // This method is only use for transfer bcdctoken from bcdcReserveFund
+    // @dev Required state: is bcdcReserveFund set
+    // @param to The address of the recipient
+    // @param value The number of BCDC tokens to transfer
+    // @return Whether the transfer was successful or not
+    function reserveTokenClaim(address claimAddress,uint256 token) onlyBcdcReserve returns (bool ok){
+      // Check if BCDC Reserve Fund is set or not
+      if ( bcdcReserveFund == 0x0) throw;
+      uint256 senderBalance = balances[msg.sender];
+      if(senderBalance >= token && token>0){
+        senderBalance = safeSub(senderBalance, token);
+        balances[msg.sender] = senderBalance;
+        balances[claimAddress] = safeAdd(balances[claimAddress], token);
+        Transfer(msg.sender, claimAddress, token);
+        return true;
+      }
+      return false;
+    }
+
+    // bcdcReserveFund related modifer and functions
+    // @dev Throws if called by any account other than the bcdcReserveFund owner
+    modifier onlyBcdcReserve() {
+      if (msg.sender != bcdcReserveFund) {
+        throw;
+      }
+      _;
     }
 }
