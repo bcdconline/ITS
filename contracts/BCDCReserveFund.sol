@@ -2,7 +2,7 @@ pragma solidity ^0.4.11;
 
 import './BCDCToken.sol';
 
-contract BCDCReserveFund {
+contract BCDCReserveFund is SafeMath{
     // BCDC token that will used in claim
     BCDCToken bcdcToken;
 
@@ -51,8 +51,9 @@ contract BCDCReserveFund {
         if (claimTokens > balance) throw;
         // Transfer the tokens to claimAddress with special functions
         if (!bcdcToken.reserveTokenClaim( claimAddress, claimTokens)) throw;
+        // Increase total claimed token
+        totalClaimed = safeAdd(totalClaimed, claimTokens);
         // Log the event
         Claimed(claimAddress, claimTokens);
     }
-
 }
