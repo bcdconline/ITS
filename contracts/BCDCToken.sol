@@ -408,6 +408,11 @@ contract BCDCToken is SafeMath, ERC20 {
         uint256 preallocatedTokens = safeDiv(safeMul(maxTokenSupply, reservedPercentTotal), 100);
         // project tokens already counted, so only add preallcated tokens
         totalSupply = safeAdd(totalSupply, preallocatedTokens);
+        // 250 millions reward tokens to multisig (equal to reservefund prellocation).
+        // Reward to token holders on their commitment with BCDC (25 % of 1 billion = 250 millions)
+        rewardTokens = safeDiv(safeMul(maxTokenSupply, reservedPercentTotal), 100);
+        balances[bcdcMultisig] = safeAdd(balances[bcdcMultisig], rewardTokens);// Assign Reward Tokens to Multisig wallet
+        totalSupply = safeAdd(totalSupply, rewardTokens);
         // Total Supply Should not be greater than 1 Billion
         if (totalSupply > maxTokenSupply) throw;
         // Transfer ETH to the BCDC Multisig address.
