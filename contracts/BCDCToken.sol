@@ -345,7 +345,8 @@ contract BCDCToken is SafeMath, ERC20 {
     function earlyInvestment(address earlyInvestor, uint256 assignedTokens, uint256 etherValue) onlyOwner stopIfHalted external {
         // Allow only in Pre Funding Mode
         if (getState() != State.PreFunding) throw;
-
+        // Check if earlyInvestor address is set or not
+        if (earlyInvestor == 0x0) throw;
         // By mistake tokens mentioned as 0, save the cost of assigning tokens.
         if (assignedTokens == 0 ) throw;
 
@@ -353,7 +354,8 @@ contract BCDCToken is SafeMath, ERC20 {
         assignTokens(earlyInvestor, assignedTokens);
 
         // Track the investment for each address
-        investment[earlyInvestor] = safeAdd(investment[earlyInvestor], etherValue);
+        // Refund for this investor is taken care by out side the contract.because they are investing in their fiat currency
+        //investment[earlyInvestor] = safeAdd(investment[earlyInvestor], etherValue);
     }
 
     // Function will transfer the tokens to investor's address
