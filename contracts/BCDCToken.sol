@@ -408,9 +408,6 @@ contract BCDCToken is SafeMath, ERC20 {
         uint256 preallocatedTokens = safeDiv(safeMul(maxTokenSupply, reservedPercentTotal), 100);
         // project tokens already counted, so only add preallcated tokens
         totalSupply = safeAdd(totalSupply, preallocatedTokens);
-        // Allocate total project tokens - To reduce the transaction both counted together
-        balances[bcdcReserveFund] = safeAdd(balances[bcdcReserveFund], preallocatedTokens);
-        Transfer(0, bcdcReserveFund, preallocatedTokens);
         // Total Supply Should not be greater than 1 Billion
         if (totalSupply > maxTokenSupply) throw;
         // Transfer ETH to the BCDC Multisig address.
