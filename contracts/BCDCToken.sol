@@ -125,7 +125,7 @@ contract BCDCToken is SafeMath, ERC20 {
     // Approximate 1/4 of 250 millions
     uint256 public tokenSaleMin;
     //1 Billion BCDC Tokens
-    uint256 public constant maxTokenSupply = 1000000000;
+    uint256 public constant maxTokenSupply = 1000000000 ether;
     // Team token percentages to store in time vault
     uint256 public constant vaultPercentOfTotal = 5;
     // Project Reserved Fund Token %
@@ -342,7 +342,7 @@ contract BCDCToken is SafeMath, ERC20 {
 
     // BCDC accepts Early Investment through manual process in Fiat Currency
     // BCDC Team will assign the tokens to investors manually through this function
-    function earlyInvestment(address earlyInvestor, uint256 assignedTokens, uint256 etherValue) onlyOwner stopIfHalted external {
+    function earlyInvestment(address earlyInvestor, uint256 assignedTokens) onlyOwner stopIfHalted external {
         // Allow only in Pre Funding Mode
         if (getState() != State.PreFunding) throw;
         // Check if earlyInvestor address is set or not
@@ -413,6 +413,7 @@ contract BCDCToken is SafeMath, ERC20 {
         rewardTokens = safeDiv(safeMul(maxTokenSupply, reservedPercentTotal), 100);
         balances[bcdcMultisig] = safeAdd(balances[bcdcMultisig], rewardTokens);// Assign Reward Tokens to Multisig wallet
         totalSupply = safeAdd(totalSupply, rewardTokens);
+
         // Total Supply Should not be greater than 1 Billion
         if (totalSupply > maxTokenSupply) throw;
         // Transfer ETH to the BCDC Multisig address.
@@ -498,6 +499,20 @@ contract BCDCToken is SafeMath, ERC20 {
       }
       return false;
     }
+
+    // This method is for getting bcdctoken as rewards
+	  // @param tokens The number of tokens back for rewards
+  	function backTokenForRewards(uint256 tokens) external{
+  		// Check that token available for transfer
+  		if(balances[msg.sender] < tokens && tokens <= 0) throw;
+
+  		// Debit tokens from msg.sender
+  		balances[msg.sender] = safeSub(balances[msg.sender], tokens);
+
+  		// Credit tokens into bcdcReserveFund
+  		balances[bcdcReserveFund] = safeAdd(balances[bcdcReserveFund], tokens);
+  		Transfer(msg.sender, bcdcReserveFund, tokens);
+  	}
 
     // bcdcReserveFund related modifer and functions
     // @dev Throws if called by any account other than the bcdcReserveFund owner
