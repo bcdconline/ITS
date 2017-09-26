@@ -26,9 +26,9 @@ contract BCDCVault is SafeMath {
     uint256 public constant numBlocksLockedFounders = 144;
 
     // flag to determine all the token for developers already unlocked or not
-    bool unlockedAllTokensForDev = false;
+    bool public unlockedAllTokensForDev = false;
     // flag to determine all the token for founders already unlocked or not
-    bool unlockedAllTokensForFounders = false;
+    bool public unlockedAllTokensForFounders = false;
 
     // Constructor function sets the BCDC Multisig address and
     // total number of locked tokens to transfer
@@ -115,8 +115,6 @@ contract BCDCToken is SafeMath, ERC20 {
     uint256 public fundingStartBlock; // crowdsale start block
     uint256 public fundingEndBlock; // crowdsale end block
     // change price of token when current block reached
-    // to priceChangeBlock block number
-    uint256 public priceChangeBlock;
 
     // Maximum Token Sale (Crowdsale + Early Sale + Supporters)
     // Approximate 250 millions ITS + 125 millions for early investors + 75 Millions to Supports
@@ -151,14 +149,12 @@ contract BCDCToken is SafeMath, ERC20 {
     // @param bcdcMultisig address of bcdcMultisigWallet
     // @param fundingStartBlock block number at which funding will start
     // @param fundingEndBlock block number at which funding will end
-    // @param priceChangeBlock block number at which token price will change
     // @param tokenSaleMax maximum number of token to sale
     // @param tokenSaleMin minimum number of token to sale
     // @param tokensPerEther number of token to sale per ether
     function BCDCToken(address _bcdcMultiSig,
                       uint256 _fundingStartBlock,
                       uint256 _fundingEndBlock,
-                      uint256 _priceChangeBlock,
                       uint256 _tokenSaleMax,
                       uint256 _tokenSaleMin,
                       uint256 _tokensPerEther) {
@@ -166,12 +162,8 @@ contract BCDCToken is SafeMath, ERC20 {
         if (_bcdcMultiSig == 0) throw;
         // Is funding already started then throw
         if (_fundingStartBlock <= block.number) throw;
-        // If priceChangeBlock or fundingStartBlock value is not correct then throw
-        if (_priceChangeBlock  <= _fundingStartBlock) throw;
         // If fundingEndBlock or fundingStartBlock value is not correct then throw
         if (_fundingEndBlock   <= _fundingStartBlock) throw;
-        // If fundingEndBlock or priceChangeBlock value is not correct then throw
-        if (_fundingEndBlock   <= _priceChangeBlock) throw;
         // If tokenSaleMax or tokenSaleMin value is not correct then throw
         if (_tokenSaleMax <= _tokenSaleMin) throw;
         // If tokensPerEther value is 0 then throw
@@ -181,7 +173,6 @@ contract BCDCToken is SafeMath, ERC20 {
         // Initalized all param
         fundingStartBlock = _fundingStartBlock;
         fundingEndBlock = _fundingEndBlock;
-        priceChangeBlock = _priceChangeBlock;
         tokenSaleMax = _tokenSaleMax;
         tokenSaleMin = _tokenSaleMin;
         tokensPerEther = _tokensPerEther;
@@ -309,7 +300,7 @@ contract BCDCToken is SafeMath, ERC20 {
         if (msg.value == 0) throw;
 
         // multiply by exchange rate to get newly created token amount
-        uint256 createdTokens = safeMul(msg.value, getTokensPerEtherPrice());
+        uint256 createdTokens = safeMul(msg.value, tokensPerEther);
 
         // Wait we crossed maximum token sale goal. It's successful token sale !!
         if (safeAdd(createdTokens, totalSupply) > tokenSaleMax) throw;
@@ -435,17 +426,6 @@ contract BCDCToken is SafeMath, ERC20 {
         investment[msg.sender] = 0;
         Refund(msg.sender, ethValue);
         if (!msg.sender.send(ethValue)) throw;
-    }
-
-    // This function will return constant price of Tokens Per Ether
-    // Initially it will be different then it will be reduced
-    // To motivate the investors with discounted rate pricing changes over weeks
-    function getTokensPerEtherPrice() public constant returns (uint256){
-        // Allow only to set the price while in funding state
-        if (getState() != State.Funding) throw;
-        // It will be 2 weeks from start of sale
-        if (block.number < priceChangeBlock) return tokensPerEther;
-        else return safeSub(tokensPerEther, 500);
     }
 
     // This will return the current state of Token Sale
