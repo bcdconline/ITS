@@ -20,10 +20,10 @@ contract BCDCVault is SafeMath {
     uint256 unlockedBlockForFounders;
     // It should be 1 * 30 days * 24 hours * 60 minutes * 60 seconds / 17
     // We can set small for testing purpose
-    uint256 public constant numBlocksLockedDev = 12;
+    uint256 public constant numBlocksLockedDev = 32000;
     // It should be 12 months * 30 days * 24 hours * 60 minutes * 60 seconds / 17
     // We can set small for testing purpose
-    uint256 public constant numBlocksLockedFounders = 144;
+    uint256 public constant numBlocksLockedFounders = 34000;
 
     // flag to determine all the token for developers already unlocked or not
     bool public unlockedAllTokensForDev = false;
@@ -385,14 +385,9 @@ contract BCDCToken is SafeMath, ERC20 {
         // Only transact if there are any unsold tokens
         if(unsoldTokens > 0) {
             totalSupply = safeAdd(totalSupply, unsoldTokens);
-            // 50% unsold tokens assign to Reward tokens held by Multisig Wallet
-            uint256 rewardTokens = safeDiv(safeMul(unsoldTokens, 50), 100);
-            balances[bcdcMultisig] = safeAdd(balances[bcdcMultisig], rewardTokens);// Assign Reward Tokens to Multisig wallet
-            Transfer(0, bcdcMultisig, rewardTokens);
-            // Remaining unsold tokens assign to Project Reserve Fund
-            uint256 projectTokens = safeSub(unsoldTokens, rewardTokens);
-            balances[bcdcReserveFund] = safeAdd(balances[bcdcReserveFund], projectTokens);// Assign Reward Tokens to Multisig wallet
-            Transfer(0, bcdcReserveFund, projectTokens);
+            // Remaining unsold tokens assign to multisig wallet
+            balances[bcdcMultisig] = safeAdd(balances[bcdcMultisig], unsoldTokens);// Assign Reward Tokens to Multisig wallet
+            Transfer(0, bcdcMultisig, unsoldTokens);
         }
 
         // Add pre allocated tokens to project reserve fund to totalSupply
@@ -401,7 +396,7 @@ contract BCDCToken is SafeMath, ERC20 {
         totalSupply = safeAdd(totalSupply, preallocatedTokens);
         // 250 millions reward tokens to multisig (equal to reservefund prellocation).
         // Reward to token holders on their commitment with BCDC (25 % of 1 billion = 250 millions)
-        rewardTokens = safeDiv(safeMul(maxTokenSupply, reservedPercentTotal), 100);
+        uint256 rewardTokens = safeDiv(safeMul(maxTokenSupply, reservedPercentTotal), 100);
         balances[bcdcMultisig] = safeAdd(balances[bcdcMultisig], rewardTokens);// Assign Reward Tokens to Multisig wallet
         totalSupply = safeAdd(totalSupply, rewardTokens);
 
