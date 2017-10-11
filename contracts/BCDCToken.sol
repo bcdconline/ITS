@@ -20,10 +20,10 @@ contract BCDCVault is SafeMath {
     uint256 unlockedBlockForFounders;
     // It should be 1 * 30 days * 24 hours * 60 minutes * 60 seconds / 17
     // We can set small for testing purpose
-    uint256 public constant numBlocksLockedDev = 32000;
+    uint256 public numBlocksLockedDev;
     // It should be 12 months * 30 days * 24 hours * 60 minutes * 60 seconds / 17
     // We can set small for testing purpose
-    uint256 public constant numBlocksLockedFounders = 34000;
+    uint256 public numBlocksLockedFounders;
 
     // flag to determine all the token for developers already unlocked or not
     bool public unlockedAllTokensForDev = false;
@@ -32,7 +32,7 @@ contract BCDCVault is SafeMath {
 
     // Constructor function sets the BCDC Multisig address and
     // total number of locked tokens to transfer
-    function BCDCVault(address _bcdcMultisig) {
+    function BCDCVault(address _bcdcMultisig,uint256 _numBlocksLockedForDev,uint256 _numBlocksLockedForFounders) {
         // If it's not bcdcMultisig address then throw
         if (_bcdcMultisig == 0x0) throw;
         // Initalized bcdcToken
@@ -41,6 +41,11 @@ contract BCDCVault is SafeMath {
         bcdcMultisig = _bcdcMultisig;
         // Mark it as BCDCVault
         isBCDCVault = true;
+
+        //Initalized numBlocksLockedDev and numBlocksLockedFounders with block number
+        numBlocksLockedDev = _numBlocksLockedForDev;
+        numBlocksLockedFounders = _numBlocksLockedForFounders;
+
         // Initalized unlockedBlockForDev with block number
         // according to current block
         unlockedBlockForDev = safeAdd(block.number, numBlocksLockedDev); // 30 days of blocks later
@@ -157,7 +162,9 @@ contract BCDCToken is SafeMath, ERC20 {
                       uint256 _fundingEndBlock,
                       uint256 _tokenSaleMax,
                       uint256 _tokenSaleMin,
-                      uint256 _tokensPerEther) {
+                      uint256 _tokensPerEther,
+                      uint256 _numBlocksLockedForDev,
+                      uint256 _numBlocksLockedForFounders) {
         // Is not bcdcMultisig address correct then throw
         if (_bcdcMultiSig == 0) throw;
         // Is funding already started then throw
@@ -177,7 +184,7 @@ contract BCDCToken is SafeMath, ERC20 {
         tokenSaleMin = _tokenSaleMin;
         tokensPerEther = _tokensPerEther;
         // Initalized timeVault as BCDCVault
-        timeVault = new BCDCVault(_bcdcMultiSig);
+        timeVault = new BCDCVault(_bcdcMultiSig,_numBlocksLockedForDev,_numBlocksLockedForFounders);
         // If timeVault is not BCDCVault then throw
         if (!timeVault.isBCDCVault()) throw;
         // Initalized bcdcMultisig address
@@ -286,13 +293,9 @@ contract BCDCToken is SafeMath, ERC20 {
         return true;
     }
 
-    // Set of Crowdfunding Functions :
-    // Don't just send ether to the contract expecting to get tokens
-    function() payable { throw; }
-
     // Sale of the tokens. Investors can call this method to invest into BCDC Tokens
     // Only when it's in funding mode. In case of emergecy it will be halted.
-    function buy() payable stopIfHalted external {
+    function() payable stopIfHalted external {
         // Allow only to invest in funding state
         if (getState() != State.Funding) throw;
 
@@ -334,8 +337,8 @@ contract BCDCToken is SafeMath, ERC20 {
     // BCDC accepts Early Investment through manual process in Fiat Currency
     // BCDC Team will assign the tokens to investors manually through this function
     function earlyInvestment(address earlyInvestor, uint256 assignedTokens) onlyOwner stopIfHalted external {
-        // Allow only in Pre Funding Mode
-        if (getState() != State.PreFunding) throw;
+        // Allow only in Pre Funding Mode And Funding Mode
+        if (getState() != State.PreFunding && getState() != State.Funding) throw;
         // Check if earlyInvestor address is set or not
         if (earlyInvestor == 0x0) throw;
         // By mistake tokens mentioned as 0, save the cost of assigning tokens.
