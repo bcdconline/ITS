@@ -4,6 +4,13 @@ import './ERC20.sol';
 import './SafeMath.sol';
 import './MultiSigWallet.sol';
 
+contract UpgradeAgent is SafeMath {
+  address public owner;
+  bool public isUpgradeAgent;
+  function upgradeFrom(address _from, uint256 _value) public;
+  function setOriginalSupply() public;
+}
+
 // @title BCDC Token vault, locked tokens for 1 month (Dev Team) and 1 year for Founders
 contract BCDCVault is SafeMath {
 
@@ -15,9 +22,9 @@ contract BCDCVault is SafeMath {
     // address of our private MultiSigWallet contract
     address bcdcMultisig;
     // number of block unlock for developers
-    uint256 unlockedBlockForDev;
+    uint256 public unlockedBlockForDev;
     // number of block unlock for founders
-    uint256 unlockedBlockForFounders;
+    uint256 public unlockedBlockForFounders;
     // It should be 1 * 30 days * 24 hours * 60 minutes * 60 seconds / 17
     // We can set small for testing purpose
     uint256 public numBlocksLockedDev;
@@ -41,11 +48,9 @@ contract BCDCVault is SafeMath {
         bcdcMultisig = _bcdcMultisig;
         // Mark it as BCDCVault
         isBCDCVault = true;
-
         //Initalized numBlocksLockedDev and numBlocksLockedFounders with block number
         numBlocksLockedDev = _numBlocksLockedForDev;
         numBlocksLockedFounders = _numBlocksLockedForFounders;
-
         // Initalized unlockedBlockForDev with block number
         // according to current block
         unlockedBlockForDev = safeAdd(block.number, numBlocksLockedDev); // 30 days of blocks later
@@ -95,6 +100,7 @@ contract BCDCToken is SafeMath, ERC20 {
 
     // flag to determine if address is for a real contract or not
     bool public isBCDCToken = false;
+    bool public upgradeAgentStatus = false;
     // Address of Owner for this Contract
     address public owner;
 
@@ -143,11 +149,19 @@ contract BCDCToken is SafeMath, ERC20 {
 
     // Events for refund process
     event Refund(address indexed _from, uint256 _value);
+    event Upgrade(address indexed _from, address indexed _to, uint256 _value);
+    event UpgradeFinalized(address sender, address upgradeAgent);
+    event UpgradeAgentSet(address agent);
     // BCDC:ETH exchange rate
     uint256 tokensPerEther;
 
     // @dev To Halt in Emergency Condition
     bool public halted;
+
+    bool public finalizedUpgrade = false;
+    address public upgradeMaster;
+    UpgradeAgent public upgradeAgent;
+    uint256 public totalUpgraded;
 
 
     // Constructor function sets following
@@ -158,6 +172,7 @@ contract BCDCToken is SafeMath, ERC20 {
     // @param tokenSaleMin minimum number of token to sale
     // @param tokensPerEther number of token to sale per ether
     function BCDCToken(address _bcdcMultiSig,
+                      address _upgradeMaster,
                       uint256 _fundingStartBlock,
                       uint256 _fundingEndBlock,
                       uint256 _tokenSaleMax,
@@ -168,6 +183,8 @@ contract BCDCToken is SafeMath, ERC20 {
         // Is not bcdcMultisig address correct then throw
         if (_bcdcMultiSig == 0) throw;
         // Is funding already started then throw
+        if (_upgradeMaster == 0) throw;
+
         if (_fundingStartBlock <= block.number) throw;
         // If fundingEndBlock or fundingStartBlock value is not correct then throw
         if (_fundingEndBlock   <= _fundingStartBlock) throw;
@@ -178,6 +195,7 @@ contract BCDCToken is SafeMath, ERC20 {
         // Mark it is BCDCToken
         isBCDCToken = true;
         // Initalized all param
+        upgradeMaster = _upgradeMaster;
         fundingStartBlock = _fundingStartBlock;
         fundingEndBlock = _fundingEndBlock;
         tokenSaleMax = _tokenSaleMax;
@@ -431,8 +449,58 @@ contract BCDCToken is SafeMath, ERC20 {
     function getState() public constant returns (State){
       if (block.number < fundingStartBlock) return State.PreFunding;
       else if (block.number <= fundingEndBlock && totalSupply < tokenSaleMax) return State.Funding;
-      else if (totalSupply >= tokenSaleMin) return State.Success;
+      else if (totalSupply >= tokenSaleMin || upgradeAgentStatus) return State.Success;
       else return State.Failure;
+    }
+
+    // Token upgrade functionality
+
+    /// @notice Upgrade tokens to the new token contract.
+    /// @dev Required state: Success
+    /// @param value The number of tokens to upgrade
+    function upgrade(uint256 value) external {
+        if (!upgradeAgentStatus) throw;
+        /*if (getState() != State.Success) throw; // Abort if not in Success state.*/
+        if (upgradeAgent.owner() == 0x0) throw; // need a real upgradeAgent address
+        if (finalizedUpgrade) throw; // cannot upgrade if finalized
+
+        // Validate input value.
+        if (value == 0) throw;
+        if (value > balances[msg.sender]) throw;
+
+        // update the balances here first before calling out (reentrancy)
+        balances[msg.sender] = safeSub(balances[msg.sender], value);
+        totalSupply = safeSub(totalSupply, value);
+        totalUpgraded = safeAdd(totalUpgraded, value);
+        upgradeAgent.upgradeFrom(msg.sender, value);
+        Upgrade(msg.sender, upgradeAgent, value);
+    }
+
+    /// @notice Set address of upgrade target contract and enable upgrade
+    /// process.
+    /// @dev Required state: Success
+    /// @param agent The address of the UpgradeAgent contract
+    function setUpgradeAgent(address agent) external {
+        if (getState() != State.Success) throw; // Abort if not in Success state.
+        if (agent == 0x0) throw; // don't set agent to nothing
+        if (msg.sender != upgradeMaster) throw; // Only a master can designate the next agent
+        upgradeAgent = UpgradeAgent(agent);
+        if (!upgradeAgent.isUpgradeAgent()) throw;
+        // this needs to be called in success condition to guarantee the invariant is true
+        upgradeAgentStatus = true;
+        upgradeAgent.setOriginalSupply();
+        UpgradeAgentSet(upgradeAgent);
+    }
+
+    /// @notice Set address of upgrade target contract and enable upgrade
+    /// process.
+    /// @dev Required state: Success
+    /// @param master The address that will manage upgrades, not the upgradeAgent contract address
+    function setUpgradeMaster(address master) external {
+        if (getState() != State.Success) throw; // Abort if not in Success state.
+        if (master == 0x0) throw;
+        if (msg.sender != upgradeMaster) throw; // Only a master can designate the next master
+        upgradeMaster = master;
     }
 
     // These modifier and functions related to halt the sale in case of emergency

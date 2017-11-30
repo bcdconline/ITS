@@ -15,12 +15,7 @@ contract BCDCReserveFund is SafeMath{
     // Events to be tracked
     event Claimed(address indexed claimAddress, uint tokens);
 
-    function BCDCReserveFund(address _bcdcToken) {
-        // check if bcdctoken address is proper or not
-        if (_bcdcToken == 0x0) throw;
-        // Get the instance of BCDCToken
-        bcdcToken = BCDCToken(_bcdcToken);
-        // Set the owner who deployed this contract
+    function BCDCReserveFund() {
         owner = msg.sender;
     }
 
@@ -39,6 +34,20 @@ contract BCDCReserveFund is SafeMath{
       if (newOwner != address(0)) {
         owner = newOwner;
       }
+    }
+
+    function setBcdcToken(address _bcdcToken) onlyOwner{
+      // check if bcdctoken address is proper or not
+      if (_bcdcToken == 0x0) throw;
+      // Get the instance of BCDCToken
+      bcdcToken = BCDCToken(_bcdcToken); // Has to be done when upgrade
+    }
+
+    function upgradeBCDCReserveFund() external onlyOwner {
+      // Check the balance of tokens owned by Reservefund
+      uint256 balance = bcdcToken.balanceOf(this);
+      if (balance <= 0) throw;
+      bcdcToken.upgrade(balance);
     }
 
     // To claim the token of rewards against the recycling or something else
